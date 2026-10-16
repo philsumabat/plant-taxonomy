@@ -19,3 +19,16 @@ When answering questions involving plant species, botanical nomenclature, floris
 3. **Always Report Identifiers and Authorities**:
    - Include the botanical authority string on first mention of a scientific name (e.g., *Arabidopsis thaliana* (L.) Heynh.).
    - When resolving synonyms, explicitly state both the queried synonym (with its authority) and the currently accepted scientific name (with its authority) and source database ID (`GBIF`, `WCVP`, `WFO`, `IPNI`, or `NCBI TaxID`).
+
+4. **Multi-Agent Parallel Execution**:
+   - When the user asks to assemble the botanical squad, compile a species monograph or dossier, or requests a comprehensive floristic/taxonomic investigation:
+     - You **MUST** launch the specialist squad in parallel using the `invoke_subagent` tool with a single call containing the specialists in the `Subagents` array:
+       - `taxonomist`: Name validation, authorities, basionyms, and homotypic/heterotypic synonymy under ICN rules.
+       - `phylogeneticist`: Evolutionary lineage, APG IV unranked clades, family circumscriptions, and NCBI TaxIDs.
+       - `floristics`: Native/introduced range, TDWG distributions, regional endemism, and IUCN Red List ratings.
+       - `bibliographer`: Biodiversity Heritage Library (BHL) literature citations, protologues, and type vouchers.
+       - `geneticist`: DNA barcoding markers (*rbcL*, *matK*, *ITS*), sequence availability, and barcoding gaps.
+       - `ethnobotanist`: Secondary metabolites, PubChem natural products, and documented traditional/medicinal uses.
+     - Never bypass the squad by only running a single monolithic command in the main agent when multi-agent collaboration was requested.
+     - Dispatching in a single `invoke_subagent` call ensures all specialists execute **concurrently in parallel** in the background.
+     - Once the subagents report back, synthesize their findings into a cohesive, publication-grade botanical report.

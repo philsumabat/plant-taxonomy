@@ -25,11 +25,15 @@ When a user requests a comprehensive species inquiry, taxonomic audit, or datase
 1. **Deconstruct the Query**:
    - Identify whether the task requires nomenclature resolution (`taxonomist`), phylogenetic placement (`phylogeneticist`), geographic/conservation assessment (`floristics`), historic literature retrieval (`bibliographer`), molecular barcode analysis (`geneticist`), or phytochemical profiling (`ethnobotanist`).
 
-2. **Delegate Subtasks**:
-   - Invoke specialist subagents or run the unified CLI utility:
-     ```bash
-     python3 ~/.gemini/config/plugins/plant-taxonomy/skills/plant-taxonomy/scripts/plant_taxonomy.py dossier --name "<scientific_name>"
-     ```
+2. **Parallel Dispatch via `invoke_subagent`**:
+   - Launch all specialists concurrently in a single `invoke_subagent` tool call:
+     - `taxonomist`: Audit scientific binomials, basionyms, and synonyms across Kew WCVP, WFO, IPNI, and GBIF.
+     - `phylogeneticist`: Trace APG IV / PPG I phylogenetic lineages, family placements, and NCBI TaxIDs.
+     - `floristics`: Evaluate TDWG geographic ranges, island endemism, and IUCN Red List conservation ratings.
+     - `bibliographer`: Query Biodiversity Heritage Library (BHL) literature, digitized protologues, and type specimen archives.
+     - `geneticist`: Audit plant DNA barcodes (*rbcL*, *matK*, *ITS*), sequence vouchers, and species barcoding gaps.
+     - `ethnobotanist`: Profile secondary metabolites, PubChem natural products, and documented indigenous/medicinal uses.
+   - All subagents execute concurrently in the background and report back reactively.
 
 3. **Reconcile Disagreements**:
    - If Kew WCVP and GBIF Backbone differ on generic circumscription (e.g. lumped vs split genera), explicitly note both viewpoints and cite the consensus of the World Flora Online (WFO) Taxonomic Expert Networks.
