@@ -578,12 +578,128 @@ def cmd_batch(args: argparse.Namespace) -> dict[str, Any]:
     return {"count": len(rows), "results": rows}
 
 
+def query_bhl(name: str, limit: int = 15, author: str | None = None, year: int | None = None) -> list[dict[str, Any]]:
+    clean_name = name.strip().replace(" ", "_")
+    url = f"https://www.biodiversitylibrary.org/namelistdownload/?type=c&name={urllib.parse.quote(clean_name)}"
+    csv_text = fetch_text(url)
+    if not csv_text or "Url,Type,Title" not in csv_text:
+        return []
+
+    clean_csv = csv_text.lstrip("\ufeff")
+    reader = csv.DictReader(clean_csv.splitlines())
+    records: list[dict[str, Any]] = []
+    for row in reader:
+        url_val = (row.get("Url") or "").strip()
+        title_val = (row.get("Title") or "").strip()
+        authors_val = (row.get("Authors") or "").strip()
+        date_val = (row.get("Date") or "").strip()
+        vol_val = (row.get("Volume") or "").strip()
+        pages_val = (row.get("Pages") or "").strip()
+        type_val = (row.get("Type") or "").strip()
+
+        if author and author.lower() not in authors_val.lower():
+            continue
+        if year and str(year) not in date_val:
+            continue
+
+        records.append(
+            {
+                "bhl_page_url": url_val,
+                "type": type_val,
+                "title": title_val,
+                "authors": authors_val,
+                "year": date_val,
+                "volume": vol_val,
+                "page": pages_val,
+                "publisher": (row.get("Publisher") or "").strip(),
+                "publisher_place": (row.get("Publisher Place") or "").strip(),
+            }
+        )
+        if len(records) >= limit:
+            break
+    return records
+
+
+def cmd_bhl(args: argparse.Namespace) -> dict[str, Any]:
+    name = args.name.strip()
+    records = query_bhl(name, limit=args.limit, author=args.author, year=args.year)
+    return {
+        "query": name,
+        "database": "Biodiversity Heritage Library (BHL)",
+        "count": len(records),
+        "results": records,
+    }
+
+
+def query_specimens(name: str, limit: int = 10, country: str | None = None) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {
+        "scientificName": name,
+        "basisOfRecord": "PRESERVED_SPECIMEN",
+        "limit": max(limit * 2, 20),
+    }
+    if country:
+        params["country"] = country.upper()
+    data = fetch_json(f"{GBIF_BASE}/occurrence/search", params)
+    results = data.get("results", [])
+    specimens: list[dict[str, Any]] = []
+    for item in results:
+        media_list = []
+        for m in item.get("media", []):
+            if m.get("identifier"):
+                media_list.append(
+                    {
+                        "format": m.get("format"),
+                        "image_url": m.get("identifier"),
+                        "license": m.get("license"),
+                    }
+                )
+        specimens.append(
+            {
+                "gbif_occurrence_id": item.get("gbifID"),
+                "occurrence_url": f"https://www.gbif.org/occurrence/{item.get('gbifID')}" if item.get("gbifID") else None,
+                "institution_code": item.get("institutionCode"),
+                "collection_code": item.get("collectionCode"),
+                "catalog_number": item.get("catalogNumber"),
+                "recorded_by": item.get("recordedBy"),
+                "record_number": item.get("recordNumber"),
+                "event_date": item.get("eventDate"),
+                "country": item.get("country"),
+                "locality": item.get("locality"),
+                "elevation_m": item.get("elevation"),
+                "decimal_latitude": item.get("decimalLatitude"),
+                "decimal_longitude": item.get("decimalLongitude"),
+                "type_status": item.get("typeStatus"),
+                "media_images": media_list,
+            }
+        )
+        if len(specimens) >= limit:
+            break
+    return specimens
+
+
+def cmd_specimens(args: argparse.Namespace) -> dict[str, Any]:
+    name = args.name.strip()
+    gbif = query_gbif_match(name)
+    lookup_name = gbif.get("accepted_scientific_name") or gbif.get("scientific_name") or name
+    records = query_specimens(lookup_name, limit=args.limit, country=args.country)
+    return {
+        "query": name,
+        "resolved_scientific_name": lookup_name,
+        "database": "Global Herbarium Preserved Specimens (GBIF)",
+        "count": len(records),
+        "results": records,
+    }
+
+
 def cmd_dossier(args: argparse.Namespace) -> dict[str, Any]:
     name = args.name.strip()
     res = cmd_resolve(argparse.Namespace(name=name, rank=None, limit=5))
     hier = cmd_hierarchy(argparse.Namespace(name=name))
     syn = cmd_synonyms(argparse.Namespace(name=name, limit=args.limit))
     prof = cmd_profile(argparse.Namespace(name=name, lang=args.lang, limit=args.limit))
+    canonical = res.get("gbif_backbone", {}).get("canonical_name") or name
+    bhl_records = query_bhl(canonical, limit=5)
+    specimen_records = query_specimens(canonical, limit=5)
 
     return {
         "taxon_query": name,
@@ -591,12 +707,20 @@ def cmd_dossier(args: argparse.Namespace) -> dict[str, Any]:
         "phylogenetic_and_taxonomic_hierarchy": hier,
         "synonymy_and_protologues": syn,
         "floristics_and_conservation": prof,
+        "biodiversity_heritage_library": {
+            "count": len(bhl_records),
+            "citations": bhl_records,
+        },
+        "herbarium_specimens": {
+            "count": len(specimen_records),
+            "vouchers": specimen_records,
+        },
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Query global plant taxonomic databases (GBIF, Kew WCVP/POWO, WFO, IPNI, CoL, NCBI)."
+        description="Query global plant taxonomic databases (GBIF, Kew WCVP/POWO, WFO, IPNI, CoL, NCBI, BHL)."
     )
     parser.add_argument(
         "--output",
@@ -632,7 +756,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_batch.add_argument("--csv-output", help="Optional path to write standardized CSV table.")
     p_batch.set_defaults(func=cmd_batch)
 
-    p_dossier = sub.add_parser("dossier", help="Generate full multi-perspective botanical dossier.")
+    p_bhl = sub.add_parser("bhl", help="Query Biodiversity Heritage Library for literature citations and digitized books.")
+    p_bhl.add_argument("--name", "-n", required=True, help="Scientific plant name to search in BHL.")
+    p_bhl.add_argument("--author", help="Optional author filter.")
+    p_bhl.add_argument("--year", type=int, help="Optional year filter.")
+    p_bhl.add_argument("--limit", "-l", type=int, default=15, help="Max BHL citations to return (default: 15).")
+    p_bhl.set_defaults(func=cmd_bhl)
+
+    p_spec = sub.add_parser("specimens", help="Query global herbaria for digitized preserved plant specimen vouchers.")
+    p_spec.add_argument("--name", "-n", required=True, help="Plant scientific name.")
+    p_spec.add_argument("--country", help="Optional 2-letter ISO country code filter (e.g., PH, US, ID).")
+    p_spec.add_argument("--limit", "-l", type=int, default=10, help="Max specimen vouchers to return (default: 10).")
+    p_spec.set_defaults(func=cmd_specimens)
+
+    p_dossier = sub.add_parser("dossier", help="Generate full multi-perspective botanical dossier including BHL literature & specimens.")
     p_dossier.add_argument("--name", "-n", required=True, help="Plant taxon name.")
     p_dossier.add_argument("--lang", help="Optional language filter for vernacular names.")
     p_dossier.add_argument("--limit", "-l", type=int, default=15, help="Max records per category.")

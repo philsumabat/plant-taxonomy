@@ -1,11 +1,12 @@
 {
   "name": "plant-taxonomy",
   "displayName": "Plant Taxonomy",
-  "version": "1.1.0",
-  "description": "Multi-agent botanical intelligence and database query suite for plant taxonomy, APG IV phylogenetics, nomenclature resolution, and floristic conservation.",
+  "version": "1.2.0",
+  "description": "Multi-agent botanical intelligence and database query suite for plant taxonomy, APG IV phylogenetics, nomenclature resolution, floristic conservation, and Biodiversity Heritage Library (BHL) historical literature.",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "Assemble the botanical squad to compile a complete dossier on Ternstroemia toquian",
+    "Search Biodiversity Heritage Library (BHL) literature citations and historic protologues for Ternstroemia toquian",
     "Resolve the taxonomic status, basionym, and accepted name for Solanum lycopersicum",
     "Compare the APG IV clade lineage and WFO/WCVP classification of Quercus robur"
   ]

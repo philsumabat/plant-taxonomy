@@ -2,18 +2,20 @@
 
 # Plant Taxonomy (`plant-taxonomy`)
 
-An **Antigravity Plugin** that queries seven authoritative global plant taxonomic databases—without requiring any API keys—to resolve scientific and vernacular names, trace homotypic and heterotypic synonyms, inspect nomenclatural protologues, retrieve Linnaean and APG IV phylogenetic hierarchies, and standardize botanical species lists.
+An **Antigravity Plugin** that queries nine authoritative global plant taxonomic and biodiversity literature databases—without requiring any API keys—to resolve scientific and vernacular names, trace homotypic and heterotypic synonyms, inspect nomenclatural protologues, retrieve Linnaean and APG IV phylogenetic hierarchies, search digitized historic literature on the Biodiversity Heritage Library (BHL), locate preserved herbarium specimen vouchers, and standardize botanical species lists.
 
 ---
 
-## Supported Taxonomic Databases
+## Supported Taxonomic & Literature Databases
 
 | Database | Authority / Publisher | Scope & Identifiers Returned | Data License |
 | :--- | :--- | :--- | :--- |
 | **Kew WCVP / POWO** | Royal Botanic Gardens, Kew (via GBIF dataset `f382f0ce-323a-4091-bb9f-add557f3a9a2`) | Consensus vascular plant status (`ACCEPTED` vs. `SYNONYM`), authorship, protologue citation | CC BY 4.0 |
 | **World Flora Online (WFO)** | WFO Plant List (via ChecklistBank dataset `2004`) | `wfo-...` IDs, subgenus & botanical section placement, cross-database identifiers | CC0 1.0 |
 | **IPNI** | International Plant Names Index (via GBIF dataset `046bbc50-cae2-47ff-aa43-729fbf53f7c5`) | `urn:lsid:ipni.org:names:...`, nomenclatural authorship, original protologue (`publishedIn`), basionyms | CC0 / Public |
+| **Biodiversity Heritage Library (BHL)** | BHL Consortium (`biodiversitylibrary.org`) | Digitized historic biodiversity literature, direct page links, journal volumes, collector field notes, plates | CC BY 4.0 / Public Domain |
 | **GBIF Backbone Taxonomy** | Global Biodiversity Information Facility (`api.gbif.org/v1`) | `usageKey`, fuzzy/exact name matching, synonyms, multilingual vernacular names, TDWG/country distributions, child taxa | CC0 / CC BY 4.0 |
+| **GBIF Herbaria** | Global Preserved Herbarium Specimens (`api.gbif.org/v1/occurrence`) | Digitized herbarium sheets, catalog numbers, collectors, collection dates, type statuses, high-res photos | CC0 / CC BY 4.0 |
 | **Catalogue of Life (CoL)** | ChecklistBank (`3LR`) | Complete Linnaean rank hierarchy (Domain → Kingdom → Subkingdom → Phylum → Class → Order → Family → Genus → Species) | CC BY 4.0 |
 | **NCBI Taxonomy** | NCBI Entrez (`eutils.ncbi.nlm.nih.gov`) | `ncbi_tax_id`, APG IV unranked phylogenetic clades (*Mesangiospermae*, *eudicotyledons*, *Gunneridae*, *Pentapetalae*, *rosids*, *asterids*, etc.) | Public Domain |
 | **iNaturalist Taxa** | iNaturalist (`api.inaturalist.org/v1/taxa`) | IUCN Red List / conservation status, preferred common names, global observation count, Wikipedia URL | CC BY-NC / Public API |
@@ -44,7 +46,8 @@ plant-taxonomy/
 │   ├── curator.md                                  # Herbarium & Squad Orchestrator
 │   ├── taxonomist.md                               # Botanical Nomenclature & ICN Specialist
 │   ├── phylogeneticist.md                          # Plant Systematist & APG IV Clade Specialist
-│   └── floristics.md                               # Biogeography, Endemism & Conservation Agent
+│   ├── floristics.md                               # Biogeography, Endemism & Conservation Agent
+│   └── bibliographer.md                            # Historic Literature & BHL Specialist
 ├── rules/
 │   └── AGENTS.md                                   # ICN botanical nomenclature & citation rules
 └── skills/
@@ -64,6 +67,7 @@ The plugin provides a team of autonomous botanical agents designed to work colla
 - **`taxonomist` (Nomenclature Specialist)**: Validates scientific binomials, verifies author citations, traces basionyms, audits homotypic/heterotypic synonyms, and cross-checks protologues across Kew WCVP, WFO, IPNI, and GBIF.
 - **`phylogeneticist` (Systematist)**: Traces unranked APG IV / PPG I phylogenetic lineages (*Angiosperms* → *eudicots* → *asterids*), explains family transfers (e.g. *Theaceae* to *Pentaphylacaceae*), and links NCBI TaxIDs.
 - **`floristics` (Biogeography Agent)**: Analyzes TDWG geographic distributions, native vs. introduced statuses, island endemism, IUCN Red List threat ratings, and iNaturalist community occurrences.
+- **`bibliographer` (Literature Historian)**: Searches Biodiversity Heritage Library (BHL) archives for historic protologues, volume/page citations, type descriptions, and collector field books.
 
 ---
 
@@ -117,9 +121,34 @@ python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
   --csv-output standardized_plants.csv
 ```
 
-### 6. Full Botanical Dossier (`dossier`)
+### 6. Biodiversity Heritage Library Literature (`bhl`)
 
-Synthesizes all nomenclatural, phylogenetic, synonymy, and biogeographical data in a single multi-perspective query:
+Queries the Biodiversity Heritage Library for historical taxonomic literature citations, monographs, collector field books, and direct URLs to high-resolution digitized page scans:
+
+```bash
+python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
+  bhl --name "Ternstroemia toquian" --limit 15
+```
+
+Filter by historical author or publication year:
+
+```bash
+python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
+  bhl --name "Ternstroemia toquian" --author "Merrill" --limit 10
+```
+
+### 7. Digitized Preserved Herbarium Specimens (`specimens`)
+
+Queries global herbaria (Kew, Naturalis Leiden, Smithsonian US, California Academy of Sciences CAS, etc.) for preserved specimen vouchers, collector names, collection dates, type statuses, and specimen sheet photographs:
+
+```bash
+python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
+  specimens --name "Ternstroemia toquian" --limit 10
+```
+
+### 8. Full Botanical Dossier (`dossier`)
+
+Synthesizes all nomenclatural, phylogenetic, synonymy, biogeographical, BHL historic literature, and herbarium specimen data in a single multi-perspective query:
 
 ```bash
 python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
@@ -131,6 +160,8 @@ python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
 ## Example Prompts in Antigravity
 
 - *"Assemble the botanical squad to compile a complete dossier on Ternstroemia toquian"*
+- *"Search Biodiversity Heritage Library (BHL) literature citations and historic protologues for Ternstroemia toquian"*
+- *"Find preserved herbarium type specimens and collection records for Ternstroemia toquian"*
 - *"Resolve the taxonomic status, basionym, and accepted name for Solanum lycopersicum"*
 - *"Compare the APG IV clade lineage and WFO/WCVP classification of Quercus robur"*
 - *"Standardize a list of plant species names and flag any synonyms or spelling variants"*
