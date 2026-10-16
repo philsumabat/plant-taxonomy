@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <!-- ~12.5% empty margin baked in (artwork bounded within 32..224) for high contrast on light and dark themes -->
+  <defs>
+    <linearGradient id="leafGrad" x1="48" y1="40" x2="208" y2="216" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="nodeGrad" x1="32" y1="32" x2="224" y2="224" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer rounded badge frame with high-contrast stroke -->
+  <rect x="32" y="32" width="192" height="192" rx="42" fill="#064E3B" stroke="#6EE7B7" stroke-width="6"/>
+
+  <!-- Botanical leaf silhouette -->
+  <path d="M180 68C124 68 80 104 74 160C130 154 166 110 180 68Z" fill="url(#leafGrad)" stroke="#A7F3D0" stroke-width="5" stroke-linejoin="round"/>
+
+  <!-- Central midrib + branching taxonomic dendrogram veins -->
+  <path d="M68 188L164 84" stroke="#ECFDF5" stroke-width="6" stroke-linecap="round"/>
+  <path d="M108 145L94 112" stroke="#ECFDF5" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M132 119L166 130" stroke="#ECFDF5" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M102 152L142 162" stroke="#ECFDF5" stroke-width="4.5" stroke-linecap="round"/>
+
+  <!-- Taxonomic nodes (representing clade / rank hierarchy) -->
+  <circle cx="94" cy="112" r="8" fill="url(#nodeGrad)" stroke="#FFFBEB" stroke-width="3"/>
+  <circle cx="166" cy="130" r="8" fill="url(#nodeGrad)" stroke="#FFFBEB" stroke-width="3"/>
+  <circle cx="142" cy="162" r="8" fill="url(#nodeGrad)" stroke="#FFFBEB" stroke-width="3"/>
+  <circle cx="164" cy="84" r="9" fill="#34D399" stroke="#ECFDF5" stroke-width="3.5"/>
+  <circle cx="68" cy="188" r="9" fill="url(#nodeGrad)" stroke="#FFFBEB" stroke-width="3.5"/>
+</svg>

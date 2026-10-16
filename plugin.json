@@ -1,0 +1,12 @@
+{
+  "name": "plant-taxonomy",
+  "displayName": "Plant Taxonomy",
+  "version": "1.0.0",
+  "description": "Query global plant taxonomic databases (GBIF, Kew WCVP/POWO, World Flora Online, IPNI, Catalogue of Life, and NCBI Taxonomy) to resolve botanical names, synonyms, protologues, APG IV lineages, and geographic distributions.",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Resolve the taxonomic status, basionym, and accepted name for Solanum lycopersicum",
+    "Compare the APG IV clade lineage and WFO/WCVP classification of Quercus robur",
+    "Standardize a list of plant species names and flag any synonyms or spelling variants"
+  ]
+}
