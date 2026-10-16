@@ -48,6 +48,18 @@ def _rate_limit() -> None:
     _LAST_REQUEST_TIME = time.monotonic()
 
 
+import ssl
+
+def _safe_urlopen(req: urllib.request.Request, timeout: int = 15):
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(exc):
+            ctx = ssl._create_unverified_context()
+            return urllib.request.urlopen(req, timeout=timeout, context=ctx)
+        raise
+
+
 def fetch_json(url: str, params: dict[str, Any] | None = None, retries: int = 3) -> dict[str, Any]:
     if params:
         clean_params = {k: v for k, v in params.items() if v is not None}
@@ -64,7 +76,7 @@ def fetch_json(url: str, params: dict[str, Any] | None = None, retries: int = 3)
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with _safe_urlopen(req, timeout=15) as resp:
                 raw = resp.read().decode("utf-8")
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
@@ -87,7 +99,7 @@ def fetch_text(url: str, params: dict[str, Any] | None = None) -> str:
     _rate_limit()
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with _safe_urlopen(req, timeout=15) as resp:
             return resp.read().decode("utf-8")
     except Exception:
         return ""
@@ -566,6 +578,22 @@ def cmd_batch(args: argparse.Namespace) -> dict[str, Any]:
     return {"count": len(rows), "results": rows}
 
 
+def cmd_dossier(args: argparse.Namespace) -> dict[str, Any]:
+    name = args.name.strip()
+    res = cmd_resolve(argparse.Namespace(name=name, rank=None, limit=5))
+    hier = cmd_hierarchy(argparse.Namespace(name=name))
+    syn = cmd_synonyms(argparse.Namespace(name=name, limit=args.limit))
+    prof = cmd_profile(argparse.Namespace(name=name, lang=args.lang, limit=args.limit))
+
+    return {
+        "taxon_query": name,
+        "nomenclatural_resolution": res,
+        "phylogenetic_and_taxonomic_hierarchy": hier,
+        "synonymy_and_protologues": syn,
+        "floristics_and_conservation": prof,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Query global plant taxonomic databases (GBIF, Kew WCVP/POWO, WFO, IPNI, CoL, NCBI)."
@@ -603,6 +631,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_batch.add_argument("--input-file", "-i", help="Text/CSV file with one plant name per line.")
     p_batch.add_argument("--csv-output", help="Optional path to write standardized CSV table.")
     p_batch.set_defaults(func=cmd_batch)
+
+    p_dossier = sub.add_parser("dossier", help="Generate full multi-perspective botanical dossier.")
+    p_dossier.add_argument("--name", "-n", required=True, help="Plant taxon name.")
+    p_dossier.add_argument("--lang", help="Optional language filter for vernacular names.")
+    p_dossier.add_argument("--limit", "-l", type=int, default=15, help="Max records per category.")
+    p_dossier.set_defaults(func=cmd_dossier)
 
     return parser
 

@@ -81,8 +81,35 @@ python3 ~/.gemini/config/plugins/plant-taxonomy/skills/plant-taxonomy/scripts/pl
   --csv-output /tmp/standardized_plants.csv
 ```
 
+### 6. Full Multi-Perspective Botanical Dossier (`dossier`)
+
+Synthesizes all nomenclatural, phylogenetic, synonymy, and biogeographical data in a single multi-perspective query:
+
+```bash
+python3 ~/.gemini/config/plugins/plant-taxonomy/skills/plant-taxonomy/scripts/plant_taxonomy.py \
+  dossier --name "Ternstroemia toquian"
+```
+
+## The Botanical Multi-Agent Squad
+
+The plugin bundles four specialized autonomous agents in `agents/`:
+
+| Subagent | Role | Specialty |
+| :--- | :--- | :--- |
+| **`curator`** | Botanical Squad Orchestrator | Decomposes complex plant queries, coordinates squad subagents in parallel, and compiles structured monographs. |
+| **`taxonomist`** | Botanical Nomenclature Specialist | Resolves binomials, verifies author citations, traces basionyms, and audits homotypic/heterotypic synonymy under ICN rules. |
+| **`phylogeneticist`** | Plant Systematist & APG IV Specialist | Traces evolutionary lineages, unranked APG IV/PPG I clades, family reassignment histories, and NCBI TaxIDs. |
+| **`floristics`** | Biogeography & Conservation Agent | Analyzes native/introduced ranges, TDWG distributions, regional endemism, IUCN threat statuses, and vernacular names. |
+
+### Multi-Agent Orchestration Patterns
+
+When conducting a comprehensive species monograph or resolving a complex taxonomic dispute:
+1. **Parallel Dispatch**: The `curator` invokes `taxonomist`, `phylogeneticist`, and `floristics` concurrently using `invoke_subagent`.
+2. **Specialist Verification**: Each subagent queries their respective primary data sources via `plant_taxonomy.py` and returns structured findings.
+3. **Consensus Synthesis**: The `curator` reconciles differences (e.g. historical Theaceae vs. modern Pentaphylacaceae placement) and outputs a comprehensive, publication-grade botanical report.
+
 ## Reporting Guidelines
 
 1. **Consensus Comparison**: When databases differ (for example, a split vs. lumped genus), present both the **Kew WCVP / WFO** botanical consensus and the **GBIF Backbone** status clearly.
-2. **ICN Formatting**: Italicize genus, species, and infraspecific epithets (*Genus species*), and keep authorities (`L.`, `(L.) Mill.`) and rank connecting terms (`subsp.`, `var.`, `f.`, `×`) roman (unitalicized).
+2. **ICN Formatting**: Italicize genus, species, and infraspecific epithets (*Genus species*), and keep authorities (`L.`, `(Blanco) Fern.-Vill.`) and rank connecting terms (`subsp.`, `var.`, `f.`, `×`) roman (unitalicized).
 3. **Database Provenance**: Include persistent identifiers (`wfo-...`, `urn:lsid:ipni.org:names:...`, `GBIF usageKey`, `NCBI TaxID`) in summary tables so the user can trace every taxonomic decision.

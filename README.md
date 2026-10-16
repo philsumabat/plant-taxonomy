@@ -39,21 +39,37 @@ plant-taxonomy/
 ├── LICENSE                                         # MIT License
 ├── .gitignore                                      # Standard Python/macOS ignore rules
 ├── assets/
-│   └── logo.svg                                    # High-contrast square SVG badge
+│   └── logo.svg                                    # Minimal Google Material Symbols badge
+├── agents/                                         # Autonomous specialized botanical agents
+│   ├── curator.md                                  # Herbarium & Squad Orchestrator
+│   ├── taxonomist.md                               # Botanical Nomenclature & ICN Specialist
+│   ├── phylogeneticist.md                          # Plant Systematist & APG IV Clade Specialist
+│   └── floristics.md                               # Biogeography, Endemism & Conservation Agent
 ├── rules/
 │   └── AGENTS.md                                   # ICN botanical nomenclature & citation rules
 └── skills/
     └── plant-taxonomy/
-        ├── SKILL.md                                # Agent skill instructions & workflows
+        ├── SKILL.md                                # Agent skill instructions & recipes
         └── scripts/
             └── plant_taxonomy.py                   # Zero-dependency Python 3 stdlib CLI
 ```
 
 ---
 
+## The Botanical Multi-Agent Squad
+
+The plugin provides a team of autonomous botanical agents designed to work collaboratively:
+
+- **`curator` (Lead Orchestrator)**: Deconstructs complex floristic inquiries, dispatches research tasks to the specialist squad in parallel, reconciles taxonomic circumscriptions, and compiles comprehensive monographs.
+- **`taxonomist` (Nomenclature Specialist)**: Validates scientific binomials, verifies author citations, traces basionyms, audits homotypic/heterotypic synonyms, and cross-checks protologues across Kew WCVP, WFO, IPNI, and GBIF.
+- **`phylogeneticist` (Systematist)**: Traces unranked APG IV / PPG I phylogenetic lineages (*Angiosperms* → *eudicots* → *asterids*), explains family transfers (e.g. *Theaceae* to *Pentaphylacaceae*), and links NCBI TaxIDs.
+- **`floristics` (Biogeography Agent)**: Analyzes TDWG geographic distributions, native vs. introduced statuses, island endemism, IUCN Red List threat ratings, and iNaturalist community occurrences.
+
+---
+
 ## CLI Usage (`plant_taxonomy.py`)
 
-`scripts/plant_taxonomy.py` uses only the Python 3 standard library (`urllib`, `xml.etree.ElementTree`, `json`, `csv`, `argparse`) and enforces automatic polite rate-limiting and retry backoff.
+`scripts/plant_taxonomy.py` uses only the Python 3 standard library (`urllib`, `xml.etree.ElementTree`, `json`, `csv`, `argparse`) and enforces automatic polite rate-limiting, SSL fallbacks, and retry backoff.
 
 ### 1. Resolve a Plant Name (`resolve`)
 
@@ -101,10 +117,20 @@ python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
   --csv-output standardized_plants.csv
 ```
 
+### 6. Full Botanical Dossier (`dossier`)
+
+Synthesizes all nomenclatural, phylogenetic, synonymy, and biogeographical data in a single multi-perspective query:
+
+```bash
+python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
+  dossier --name "Ternstroemia toquian"
+```
+
 ---
 
 ## Example Prompts in Antigravity
 
+- *"Assemble the botanical squad to compile a complete dossier on Ternstroemia toquian"*
 - *"Resolve the taxonomic status, basionym, and accepted name for Solanum lycopersicum"*
 - *"Compare the APG IV clade lineage and WFO/WCVP classification of Quercus robur"*
 - *"Standardize a list of plant species names and flag any synonyms or spelling variants"*
