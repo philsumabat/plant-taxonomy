@@ -2,17 +2,19 @@
 
 # Plant Taxonomy (`plant-taxonomy`)
 
-An **Antigravity Plugin** that queries nine authoritative global plant taxonomic and biodiversity literature databases—without requiring any API keys—to resolve scientific and vernacular names, trace homotypic and heterotypic synonyms, inspect nomenclatural protologues, retrieve Linnaean and APG IV phylogenetic hierarchies, search digitized historic literature on the Biodiversity Heritage Library (BHL), locate preserved herbarium specimen vouchers, and standardize botanical species lists.
+An **Antigravity Plugin** that queries eleven authoritative global plant taxonomic, genetic, chemical, and biodiversity literature databases—without requiring any API keys—to resolve scientific and vernacular names, trace homotypic and heterotypic synonyms, inspect nomenclatural protologues, retrieve Linnaean and APG IV phylogenetic hierarchies, audit plant DNA barcodes (*rbcL*, *matK*, *ITS*, *psbA*), extract secondary metabolites and bioactive chemical structures via PubChem, search digitized historic literature on the Biodiversity Heritage Library (BHL), locate preserved herbarium specimen vouchers, and standardize botanical species lists with automated synonym expansion.
 
 ---
 
-## Supported Taxonomic & Literature Databases
+## Supported Databases & Chemical Resources
 
 | Database | Authority / Publisher | Scope & Identifiers Returned | Data License |
 | :--- | :--- | :--- | :--- |
 | **Kew WCVP / POWO** | Royal Botanic Gardens, Kew (via GBIF dataset `f382f0ce-323a-4091-bb9f-add557f3a9a2`) | Consensus vascular plant status (`ACCEPTED` vs. `SYNONYM`), authorship, protologue citation | CC BY 4.0 |
 | **World Flora Online (WFO)** | WFO Plant List (via ChecklistBank dataset `2004`) | `wfo-...` IDs, subgenus & botanical section placement, cross-database identifiers | CC0 1.0 |
 | **IPNI** | International Plant Names Index (via GBIF dataset `046bbc50-cae2-47ff-aa43-729fbf53f7c5`) | `urn:lsid:ipni.org:names:...`, nomenclatural authorship, original protologue (`publishedIn`), basionyms | CC0 / Public |
+| **NCBI Nucleotide (GenBank)** | NCBI Entrez (`eutils.ncbi.nlm.nih.gov`) | Plant DNA barcodes (*rbcL*, *matK*, *ITS*, *psbA*), accession numbers, length in bp, raw FASTA sequence exports | Public Domain |
+| **PubChem PUG-REST** | NCBI PubChem (`pubchem.ncbi.nlm.nih.gov`) | Plant secondary metabolites, bioactive structures, molecular formulas, MW, Canonical SMILES, InChIKeys | Public Domain |
 | **Biodiversity Heritage Library (BHL)** | BHL Consortium (`biodiversitylibrary.org`) | Digitized historic biodiversity literature, direct page links, journal volumes, collector field notes, plates | CC BY 4.0 / Public Domain |
 | **GBIF Backbone Taxonomy** | Global Biodiversity Information Facility (`api.gbif.org/v1`) | `usageKey`, fuzzy/exact name matching, synonyms, multilingual vernacular names, TDWG/country distributions, child taxa | CC0 / CC BY 4.0 |
 | **GBIF Herbaria** | Global Preserved Herbarium Specimens (`api.gbif.org/v1/occurrence`) | Digitized herbarium sheets, catalog numbers, collectors, collection dates, type statuses, high-res photos | CC0 / CC BY 4.0 |
@@ -47,7 +49,9 @@ plant-taxonomy/
 │   ├── taxonomist.md                               # Botanical Nomenclature & ICN Specialist
 │   ├── phylogeneticist.md                          # Plant Systematist & APG IV Clade Specialist
 │   ├── floristics.md                               # Biogeography, Endemism & Conservation Agent
-│   └── bibliographer.md                            # Historic Literature & BHL Specialist
+│   ├── bibliographer.md                            # Historic Literature & BHL Specialist
+│   ├── geneticist.md                               # Molecular Barcoding & Sequence Specialist
+│   └── ethnobotanist.md                            # Phytochemistry & Plant Uses Specialist
 ├── rules/
 │   └── AGENTS.md                                   # ICN botanical nomenclature & citation rules
 └── skills/
@@ -68,6 +72,8 @@ The plugin provides a team of autonomous botanical agents designed to work colla
 - **`phylogeneticist` (Systematist)**: Traces unranked APG IV / PPG I phylogenetic lineages (*Angiosperms* → *eudicots* → *asterids*), explains family transfers (e.g. *Theaceae* to *Pentaphylacaceae*), and links NCBI TaxIDs.
 - **`floristics` (Biogeography Agent)**: Analyzes TDWG geographic distributions, native vs. introduced statuses, island endemism, IUCN Red List threat ratings, and iNaturalist community occurrences.
 - **`bibliographer` (Literature Historian)**: Searches Biodiversity Heritage Library (BHL) archives for historic protologues, volume/page citations, type descriptions, and collector field books.
+- **`geneticist` (Molecular Barcoder)**: Audits plant DNA barcodes (*rbcL*, *matK*, *ITS*, *psbA*), evaluates species barcoding gaps, and retrieves GenBank FASTA sequences.
+- **`ethnobotanist` (Phytochemist)**: Extracts secondary metabolites, PubChem natural products, bioactive structures, and documented traditional/medicinal uses.
 
 ---
 
@@ -146,9 +152,28 @@ python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
   specimens --name "Ternstroemia toquian" --limit 10
 ```
 
-### 8. Full Botanical Dossier (`dossier`)
+### 8. Plant DNA Barcoding & FASTA Sequences (`genetics`)
 
-Synthesizes all nomenclatural, phylogenetic, synonymy, biogeographical, BHL historic literature, and herbarium specimen data in a single multi-perspective query:
+Queries NCBI Entrez Nucleotide for core plant barcoding markers (*rbcL*, *matK*, *ITS*, *psbA*), assesses species barcoding gaps, and exports standard FASTA sequence files with automated synonym expansion:
+
+```bash
+python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
+  genetics --name "Solanum lycopersicum" --markers rbcL matK ITS \
+  --fasta-output barcodes.fasta
+```
+
+### 9. Phytochemistry & Secondary Metabolites (`phytochem`)
+
+Queries PubChem PUG-REST for secondary plant metabolites, bioactive natural products, molecular formulas, MW, Canonical SMILES, and traditional plant uses:
+
+```bash
+python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
+  phytochem --name "Solanum lycopersicum" --limit 15
+```
+
+### 10. Full Botanical Dossier (`dossier`)
+
+Synthesizes all nomenclatural, phylogenetic, synonymy, biogeographical, BHL historic literature, herbarium specimen vouchers, DNA barcoding, and phytochemical data in a single multi-perspective query:
 
 ```bash
 python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
@@ -160,6 +185,8 @@ python3 skills/plant-taxonomy/scripts/plant_taxonomy.py \
 ## Example Prompts in Antigravity
 
 - *"Assemble the botanical squad to compile a complete dossier on Ternstroemia toquian"*
+- *"Query NCBI DNA barcoding markers (rbcL, matK, ITS) and export FASTA sequences for Solanum lycopersicum"*
+- *"Analyze secondary metabolites and PubChem natural product constituents for Solanum lycopersicum"*
 - *"Search Biodiversity Heritage Library (BHL) literature citations and historic protologues for Ternstroemia toquian"*
 - *"Find preserved herbarium type specimens and collection records for Ternstroemia toquian"*
 - *"Resolve the taxonomic status, basionym, and accepted name for Solanum lycopersicum"*

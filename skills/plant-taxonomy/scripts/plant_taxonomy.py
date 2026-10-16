@@ -17,6 +17,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -30,6 +31,7 @@ GBIF_BASE = "https://api.gbif.org/v1"
 CLB_BASE = "https://api.checklistbank.org"
 NCBI_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 INAT_BASE = "https://api.inaturalist.org/v1"
+PUBCHEM_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 
 DATASET_WCVP = "f382f0ce-323a-4091-bb9f-add557f3a9a2"
 DATASET_IPNI = "046bbc50-cae2-47ff-aa43-729fbf53f7c5"
@@ -146,6 +148,21 @@ def query_gbif_match(name: str, rank: str | None = None, strict: bool = False) -
         acc = fetch_json(f"{GBIF_BASE}/species/{accepted_key}")
         result["accepted_scientific_name"] = acc.get("scientificName")
         result["accepted_canonical_name"] = acc.get("canonicalName")
+    elif data.get("rank") in ("GENUS", "FAMILY", "ORDER") and len(name.strip().split()) >= 2:
+        sp_res = fetch_json(f"{GBIF_BASE}/species", {"name": name.strip()})
+        for r in sp_res.get("results", []):
+            if r.get("rank") == "SPECIES" and r.get("acceptedKey"):
+                acc_k = r.get("acceptedKey")
+                acc = fetch_json(f"{GBIF_BASE}/species/{acc_k}")
+                if "canonicalName" in acc:
+                    result["accepted_usage_key"] = acc_k
+                    result["accepted_scientific_name"] = acc.get("scientificName")
+                    result["accepted_canonical_name"] = acc.get("canonicalName")
+                    result["status"] = "SYNONYM"
+                    result["canonical_name"] = r.get("canonicalName") or name.strip()
+                    result["scientific_name"] = r.get("scientificName") or name.strip()
+                    result["rank"] = "SPECIES"
+                    break
     return result
 
 
@@ -579,6 +596,292 @@ def cmd_batch(args: argparse.Namespace) -> dict[str, Any]:
     return {"count": len(rows), "results": rows}
 
 
+def strip_botanical_authorship(name_str: str) -> str:
+    """Strips authority strings, parenthetical authors, and infraspecific markers to clean Latin binomials."""
+    if not name_str:
+        return ""
+    s = re.sub(r"\(.*?\)", "", name_str)
+    tokens = s.strip().split()
+    clean_tokens = []
+    for t in tokens:
+        if t in ("subsp.", "var.", "f.", "sect.", "subg.", "×"):
+            continue
+        if len(clean_tokens) >= 1 and (t.endswith(".") or (len(clean_tokens) >= 2 and t[0].isupper())):
+            break
+        clean_tokens.append(t)
+        if len(clean_tokens) >= 2:
+            break
+    if len(clean_tokens) == 2:
+        return f"{clean_tokens[0]} {clean_tokens[1]}".strip()
+    return clean_tokens[0] if clean_tokens else name_str.strip()
+
+
+def get_taxonomic_cluster(name: str) -> dict[str, Any]:
+    """Resolves a plant taxon, extracting the accepted name, canonical binomial, basionym, and all synonyms."""
+    res = cmd_resolve(argparse.Namespace(name=name, rank=None, limit=5))
+    gbif_info = res.get("gbif_backbone", {})
+    canonical = gbif_info.get("canonical_name") or strip_botanical_authorship(name)
+    accepted_sci = gbif_info.get("accepted_scientific_name") or gbif_info.get("scientific_name") or name
+    accepted_canonical = strip_botanical_authorship(accepted_sci) or canonical
+
+    syns_data = cmd_synonyms(argparse.Namespace(name=name, limit=20))
+    basionym = syns_data.get("basionym", {}).get("scientific_name")
+    basionym_canonical = strip_botanical_authorship(basionym) if basionym else None
+
+    synonym_canonicals = set()
+    for s in syns_data.get("gbif_synonyms", []):
+        sci = s.get("scientific_name") or s.get("canonical_name")
+        c = strip_botanical_authorship(sci)
+        if c:
+            synonym_canonicals.add(c)
+    for s in syns_data.get("wcvp_synonyms", []):
+        sci = s.get("scientific_name")
+        c = strip_botanical_authorship(sci)
+        if c:
+            synonym_canonicals.add(c)
+
+    all_names = [accepted_canonical]
+    if canonical and canonical not in all_names:
+        all_names.append(canonical)
+    if basionym_canonical and basionym_canonical not in all_names:
+        all_names.append(basionym_canonical)
+    for s in sorted(synonym_canonicals):
+        if s not in all_names:
+            all_names.append(s)
+
+    return {
+        "queried_name": name,
+        "canonical_name": canonical,
+        "accepted_name": accepted_canonical,
+        "accepted_scientific_name": accepted_sci,
+        "basionym": basionym,
+        "basionym_canonical": basionym_canonical,
+        "synonyms": sorted(synonym_canonicals),
+        "all_canonical_names": all_names,
+    }
+
+
+def query_genetics(
+    name: str,
+    markers: list[str] | None = None,
+    limit: int = 10,
+    fetch_fasta: bool = False,
+    fasta_output: str | None = None,
+    expand_synonyms: bool = True,
+) -> dict[str, Any]:
+    cluster = get_taxonomic_cluster(name)
+    names_to_search = cluster["all_canonical_names"] if expand_synonyms else [cluster["accepted_name"]]
+
+    marker_list = markers or ["rbcL", "matK", "ITS", "psbA"]
+    marker_parts = []
+    for m in marker_list:
+        m_upper = m.upper()
+        if "ITS" in m_upper:
+            marker_parts.append(f"{m}[All Fields]")
+        else:
+            marker_parts.append(f"{m}[Gene]")
+    marker_term = f"({' OR '.join(marker_parts)})"
+
+    org_parts = [f'"{n}"[Organism]' for n in names_to_search]
+    org_term = f"({' OR '.join(org_parts)})"
+    full_term = f"{org_term} AND {marker_term}"
+
+    esearch_params = {
+        "db": "nuccore",
+        "term": full_term,
+        "retmode": "json",
+        "retmax": max(limit * 2, 20),
+        "sort": "pub_date",
+    }
+    esearch_data = fetch_json(f"{NCBI_BASE}/esearch.fcgi", esearch_params)
+    id_list = esearch_data.get("esearchresult", {}).get("idlist", [])
+
+    results: list[dict[str, Any]] = []
+    gap_analysis = None
+
+    if id_list:
+        batch_ids = id_list[:limit]
+        esum_params = {
+            "db": "nuccore",
+            "id": ",".join(batch_ids),
+            "retmode": "json",
+        }
+        esum_data = fetch_json(f"{NCBI_BASE}/esummary.fcgi", esum_params)
+        res_dict = esum_data.get("result", {})
+
+        fasta_map: dict[str, str] = {}
+        if fetch_fasta or fasta_output:
+            try:
+                fasta_url = f"{NCBI_BASE}/efetch.fcgi?db=nuccore&id={','.join(batch_ids)}&rettype=fasta&retmode=text"
+                fasta_text = fetch_text(fasta_url)
+                if fasta_text:
+                    if fasta_output:
+                        out_p = Path(fasta_output).expanduser().resolve()
+                        out_p.parent.mkdir(parents=True, exist_ok=True)
+                        out_p.write_text(fasta_text, encoding="utf-8")
+                    curr_acc = None
+                    curr_lines = []
+                    for line in fasta_text.splitlines():
+                        if line.startswith(">"):
+                            if curr_acc:
+                                fasta_map[curr_acc] = "\n".join(curr_lines)
+                            curr_acc = line[1:].split()[0]
+                            curr_lines = [line]
+                        else:
+                            curr_lines.append(line)
+                    if curr_acc:
+                        fasta_map[curr_acc] = "\n".join(curr_lines)
+            except Exception:
+                pass
+
+        for uid in batch_ids:
+            item = res_dict.get(uid, {})
+            title = item.get("title") or ""
+            accession = item.get("caption") or uid
+            org = item.get("organism") or ""
+
+            detected_marker = "other"
+            title_lower = title.lower()
+            for m in marker_list:
+                if m.lower() in title_lower:
+                    detected_marker = m
+                    break
+
+            entry = {
+                "gi_id": uid,
+                "accession": accession,
+                "title": title,
+                "marker": detected_marker,
+                "organism": org,
+                "length_bp": item.get("slen"),
+                "date_created": item.get("createdate"),
+                "genbank_url": f"https://www.ncbi.nlm.nih.gov/nuccore/{accession}",
+            }
+            if fetch_fasta and accession in fasta_map:
+                entry["fasta_sequence"] = fasta_map[accession]
+            results.append(entry)
+    else:
+        genus = cluster["accepted_name"].split()[0]
+        genus_term = f'"{genus}"[Organism] AND {marker_term}'
+        g_data = fetch_json(f"{NCBI_BASE}/esearch.fcgi", {"db": "nuccore", "term": genus_term, "retmode": "json", "retmax": 5})
+        g_count = int(g_data.get("esearchresult", {}).get("count", 0))
+        gap_analysis = {
+            "status": "species_barcoding_gap",
+            "message": f"Zero DNA barcodes found for '{name}' or synonyms in NCBI GenBank.",
+            "genus_name": genus,
+            "genus_barcodes_available": g_count,
+            "recommendation": "Priority candidate for chloroplast (rbcL, matK) and nuclear (ITS) sequence vouchers.",
+        }
+
+    return {
+        "query": name,
+        "taxonomic_cluster": cluster,
+        "markers_searched": marker_list,
+        "synonym_expansion_enabled": expand_synonyms,
+        "barcodes_found_count": len(results),
+        "fasta_saved_to": str(fasta_output) if fasta_output else None,
+        "results": results,
+        "gap_analysis": gap_analysis,
+    }
+
+
+def cmd_genetics(args: argparse.Namespace) -> dict[str, Any]:
+    name = args.name.strip()
+    markers = args.markers if getattr(args, "markers", None) else None
+    fetch_fasta = getattr(args, "fasta", False)
+    fasta_output = getattr(args, "fasta_output", None)
+    expand = not getattr(args, "no_synonyms", False)
+    return query_genetics(
+        name=name,
+        markers=markers,
+        limit=args.limit,
+        fetch_fasta=fetch_fasta,
+        fasta_output=fasta_output,
+        expand_synonyms=expand,
+    )
+
+
+def query_phytochem(
+    name: str,
+    limit: int = 15,
+    expand_synonyms: bool = True,
+) -> dict[str, Any]:
+    cluster = get_taxonomic_cluster(name)
+    compounds: list[dict[str, Any]] = []
+    seen_cids = set()
+
+    tax_info = query_ncbi_taxonomy(cluster["accepted_name"])
+    tax_id = tax_info.get("ncbi_tax_id")
+
+    if tax_id:
+        try:
+            elink_url = f"{NCBI_BASE}/elink.fcgi?dbfrom=taxonomy&id={tax_id}&db=pccompound&retmode=json"
+            elink_data = fetch_json(elink_url)
+            cids_found = []
+            for ls in elink_data.get("linksets", []):
+                for db in ls.get("linksetdbs", []):
+                    if db.get("linkname") == "taxonomy_pccompound":
+                        cids_found.extend(db.get("links", []))
+
+            if cids_found:
+                batch_cids = cids_found[:limit]
+                cid_str = ",".join(batch_cids)
+                props_url = f"{PUBCHEM_BASE}/compound/cid/{cid_str}/property/MolecularFormula,MolecularWeight,IUPACName,InChIKey,CanonicalSMILES/JSON"
+                p_data = fetch_json(props_url)
+                for prop in p_data.get("PropertyTable", {}).get("Properties", []):
+                    cid = str(prop.get("CID"))
+                    if cid not in seen_cids:
+                        seen_cids.add(cid)
+                        compounds.append(
+                            {
+                                "pubchem_cid": cid,
+                                "molecular_formula": prop.get("MolecularFormula"),
+                                "molecular_weight": prop.get("MolecularWeight"),
+                                "iupac_name": prop.get("IUPACName"),
+                                "inchikey": prop.get("InChIKey"),
+                                "smiles": prop.get("CanonicalSMILES"),
+                                "pubchem_url": f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}",
+                                "matched_taxon": cluster["accepted_name"],
+                            }
+                        )
+        except Exception:
+            pass
+
+    chem_lit: list[dict[str, Any]] = []
+    try:
+        q_term = f'"{cluster["accepted_name"]}" (alkaloid OR flavonoid OR terpenoid OR saponin OR medicinal OR extract OR pharmacology)'
+        chem_res = fetch_json(f"{GBIF_BASE}/literature/search", {"q": q_term, "limit": 5})
+        for cl in chem_res.get("results", []):
+            chem_lit.append(
+                {
+                    "title": cl.get("title"),
+                    "year": cl.get("year"),
+                    "source": cl.get("source"),
+                    "doi": cl.get("identifiers", {}).get("doi"),
+                    "url": (cl.get("websites") or [None])[0],
+                }
+            )
+    except Exception:
+        pass
+
+    return {
+        "query": name,
+        "taxonomic_cluster": cluster,
+        "ncbi_tax_id": tax_id,
+        "synonym_expansion_enabled": expand_synonyms,
+        "compounds_count": len(compounds),
+        "compounds": compounds,
+        "phytochemical_and_pharmacological_literature": chem_lit,
+        "pubchem_portal_url": f"https://pubchem.ncbi.nlm.nih.gov/#query={urllib.parse.quote(cluster['accepted_name'])}",
+    }
+
+
+def cmd_phytochem(args: argparse.Namespace) -> dict[str, Any]:
+    name = args.name.strip()
+    expand = not getattr(args, "no_synonyms", False)
+    return query_phytochem(name=name, limit=args.limit, expand_synonyms=expand)
+
+
 def query_bhl(
     name: str,
     limit: int = 15,
@@ -774,6 +1077,8 @@ def cmd_dossier(args: argparse.Namespace) -> dict[str, Any]:
     canonical = res.get("gbif_backbone", {}).get("canonical_name") or name
     bhl_data = query_bhl(canonical, limit=5)
     specimen_records = query_specimens(canonical, limit=5)
+    genetics_data = query_genetics(canonical, limit=5, expand_synonyms=True)
+    phytochem_data = query_phytochem(canonical, limit=5, expand_synonyms=True)
 
     return {
         "taxon_query": name,
@@ -786,12 +1091,14 @@ def cmd_dossier(args: argparse.Namespace) -> dict[str, Any]:
             "count": len(specimen_records),
             "vouchers": specimen_records,
         },
+        "molecular_genetics_and_barcodes": genetics_data,
+        "phytochemistry_and_ethnobotany": phytochem_data,
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Query global plant taxonomic databases (GBIF, Kew WCVP/POWO, WFO, IPNI, CoL, NCBI, BHL)."
+        description="Query global plant taxonomic databases (GBIF, Kew WCVP/POWO, WFO, IPNI, CoL, NCBI Nucleotide, PubChem, BHL)."
     )
     parser.add_argument(
         "--output",
@@ -827,6 +1134,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_batch.add_argument("--csv-output", help="Optional path to write standardized CSV table.")
     p_batch.set_defaults(func=cmd_batch)
 
+    p_gen = sub.add_parser("genetics", help="Query NCBI Entrez for DNA barcoding markers (rbcL, matK, ITS, psbA) and export FASTA.")
+    p_gen.add_argument("--name", "-n", required=True, help="Plant scientific name.")
+    p_gen.add_argument("--markers", "-m", nargs="*", help="List of markers to query (default: rbcL matK ITS psbA).")
+    p_gen.add_argument("--limit", "-l", type=int, default=10, help="Max barcode records to return (default: 10).")
+    p_gen.add_argument("--fasta", action="store_true", help="Include raw FASTA sequences in JSON output.")
+    p_gen.add_argument("--fasta-output", help="Optional file path to save FASTA sequences.")
+    p_gen.add_argument("--no-synonyms", action="store_true", help="Disable automated synonym query expansion.")
+    p_gen.set_defaults(func=cmd_genetics)
+
+    p_phy = sub.add_parser("phytochem", help="Query PubChem for secondary metabolites, bioactive compounds, and ethnobotanical uses.")
+    p_phy.add_argument("--name", "-n", required=True, help="Plant scientific name.")
+    p_phy.add_argument("--limit", "-l", type=int, default=15, help="Max compounds to return (default: 15).")
+    p_phy.add_argument("--no-synonyms", action="store_true", help="Disable automated synonym query expansion.")
+    p_phy.set_defaults(func=cmd_phytochem)
+
     p_bhl = sub.add_parser("bhl", help="Query Biodiversity Heritage Library for literature citations and digitized books.")
     p_bhl.add_argument("--name", "-n", required=True, help="Scientific plant name to search in BHL.")
     p_bhl.add_argument("--author", help="Optional author filter.")
@@ -841,7 +1163,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_spec.add_argument("--limit", "-l", type=int, default=10, help="Max specimen vouchers to return (default: 10).")
     p_spec.set_defaults(func=cmd_specimens)
 
-    p_dossier = sub.add_parser("dossier", help="Generate full multi-perspective botanical dossier including BHL literature & specimens.")
+    p_dossier = sub.add_parser("dossier", help="Generate full multi-perspective botanical dossier including BHL literature, specimens, genetics & phytochemistry.")
     p_dossier.add_argument("--name", "-n", required=True, help="Plant taxon name.")
     p_dossier.add_argument("--lang", help="Optional language filter for vernacular names.")
     p_dossier.add_argument("--limit", "-l", type=int, default=15, help="Max records per category.")

@@ -23,6 +23,8 @@ This skill provides unified, zero-API-key access to seven authoritative global b
 | **Kew WCVP / POWO** | Royal Botanic Gardens, Kew (via GBIF `f382f0ce-323a-4091-bb9f-add557f3a9a2`) | Consensus vascular plant status (`ACCEPTED` vs. `SYNONYM`), authorship, protologue citation |
 | **World Flora Online (WFO)** | WFO Plant List (via ChecklistBank `2004`) | `wfo-...` IDs, subgenus/section placement, consensus status |
 | **IPNI** | International Plant Names Index (via GBIF `046bbc50-cae2-47ff-aa43-729fbf53f7c5`) | `urn:lsid:ipni.org:names:...`, nomenclatural authorship, original publication (`publishedIn`), basionyms |
+| **NCBI Nucleotide (GenBank)** | NCBI Entrez (`eutils.ncbi.nlm.nih.gov`) | Plant DNA barcodes (*rbcL*, *matK*, *ITS*, *psbA*), accession numbers, FASTA sequence downloads |
+| **PubChem PUG-REST** | NCBI PubChem (`pubchem.ncbi.nlm.nih.gov`) | Plant secondary metabolites, bioactive chemical structures, formulas, MW, SMILES, InChIKeys |
 | **BHL** | Biodiversity Heritage Library (`biodiversitylibrary.org`) | Digitized literature, volume/page citations, type descriptions, collector field books |
 | **GBIF Backbone** | Global Biodiversity Information Facility (`api.gbif.org/v1`) | `usageKey`, fuzzy name matching, synonyms, vernacular names, TDWG/country distributions, child taxa |
 | **GBIF Herbaria** | Global Herbarium Preserved Specimens (`api.gbif.org/v1/occurrence`) | Digitized voucher sheets, catalog numbers, collectors, type statuses, specimen photos |
@@ -101,9 +103,28 @@ python3 ~/.gemini/config/plugins/plant-taxonomy/skills/plant-taxonomy/scripts/pl
   specimens --name "Ternstroemia toquian" --limit 10
 ```
 
-### 8. Full Multi-Perspective Botanical Dossier (`dossier`)
+### 8. Plant DNA Barcoding & FASTA Sequences (`genetics`)
 
-Synthesizes nomenclatural, phylogenetic, synonymy, biogeographical, BHL literature, and herbarium specimen data in a single multi-perspective query:
+Queries NCBI Entrez Nucleotide for core plant barcoding markers (*rbcL*, *matK*, *ITS*, *psbA*), assesses barcoding gaps, and exports FASTA sequence files:
+
+```bash
+python3 ~/.gemini/config/plugins/plant-taxonomy/skills/plant-taxonomy/scripts/plant_taxonomy.py \
+  genetics --name "Solanum lycopersicum" --markers rbcL matK ITS \
+  --fasta-output /tmp/barcodes.fasta
+```
+
+### 9. Phytochemistry & Secondary Metabolites (`phytochem`)
+
+Queries PubChem PUG-REST for secondary plant metabolites, bioactive compounds, molecular weights, Canonical SMILES, and traditional plant uses:
+
+```bash
+python3 ~/.gemini/config/plugins/plant-taxonomy/skills/plant-taxonomy/scripts/plant_taxonomy.py \
+  phytochem --name "Solanum lycopersicum" --limit 15
+```
+
+### 10. Full Multi-Perspective Botanical Dossier (`dossier`)
+
+Synthesizes nomenclatural, phylogenetic, synonymy, biogeographical, BHL literature, herbarium specimen vouchers, DNA barcoding, and phytochemical data in a single multi-perspective query:
 
 ```bash
 python3 ~/.gemini/config/plugins/plant-taxonomy/skills/plant-taxonomy/scripts/plant_taxonomy.py \
@@ -112,7 +133,7 @@ python3 ~/.gemini/config/plugins/plant-taxonomy/skills/plant-taxonomy/scripts/pl
 
 ## The Botanical Multi-Agent Squad
 
-The plugin bundles five specialized autonomous agents in `agents/`:
+The plugin bundles seven specialized autonomous agents in `agents/`:
 
 | Subagent | Role | Specialty |
 | :--- | :--- | :--- |
@@ -121,13 +142,15 @@ The plugin bundles five specialized autonomous agents in `agents/`:
 | **`phylogeneticist`** | Plant Systematist & APG IV Specialist | Traces evolutionary lineages, unranked APG IV/PPG I clades, family reassignment histories, and NCBI TaxIDs. |
 | **`floristics`** | Biogeography & Conservation Agent | Analyzes native/introduced ranges, TDWG distributions, regional endemism, IUCN threat statuses, and vernacular names. |
 | **`bibliographer`** | Historic Literature & Protologue Specialist | Searches Biodiversity Heritage Library (BHL) records, collector field notes, and digitized taxonomic monographs. |
+| **`geneticist`** | Molecular Barcoding Specialist | Audits plant DNA barcodes (*rbcL*, *matK*, *ITS*, *psbA*), evaluates species barcoding gaps, and retrieves GenBank FASTA sequences. |
+| **`ethnobotanist`** | Phytochemist & Economic Botanist | Extracts secondary metabolites, PubChem natural products, bioactive structures, and documented traditional/medicinal uses. |
 
 ### Multi-Agent Orchestration Patterns
 
 When conducting a comprehensive species monograph or resolving a complex taxonomic dispute:
-1. **Parallel Dispatch**: The `curator` invokes `taxonomist`, `phylogeneticist`, `floristics`, and `bibliographer` concurrently using `invoke_subagent`.
+1. **Parallel Dispatch**: The `curator` invokes `taxonomist`, `phylogeneticist`, `floristics`, `bibliographer`, `geneticist`, and `ethnobotanist` concurrently using `invoke_subagent`.
 2. **Specialist Verification**: Each subagent queries their respective primary data sources via `plant_taxonomy.py` and returns structured findings.
-3. **Consensus Synthesis**: The `curator` reconciles differences (e.g. historical Theaceae vs. modern Pentaphylacaceae placement, basionym publication details) and outputs a comprehensive, publication-grade botanical report.
+3. **Consensus Synthesis**: The `curator` reconciles differences (e.g. historical Theaceae vs. modern Pentaphylacaceae placement, basionym publication details, DNA barcoding status) and outputs a comprehensive, publication-grade botanical report.
 
 ## Reporting Guidelines
 
