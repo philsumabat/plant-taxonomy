@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -578,57 +579,130 @@ def cmd_batch(args: argparse.Namespace) -> dict[str, Any]:
     return {"count": len(rows), "results": rows}
 
 
-def query_bhl(name: str, limit: int = 15, author: str | None = None, year: int | None = None) -> list[dict[str, Any]]:
-    clean_name = name.strip().replace(" ", "_")
-    url = f"https://www.biodiversitylibrary.org/namelistdownload/?type=c&name={urllib.parse.quote(clean_name)}"
-    csv_text = fetch_text(url)
-    if not csv_text or "Url,Type,Title" not in csv_text:
-        return []
-
-    clean_csv = csv_text.lstrip("\ufeff")
-    reader = csv.DictReader(clean_csv.splitlines())
+def query_bhl(
+    name: str,
+    limit: int = 15,
+    author: str | None = None,
+    year: int | None = None,
+    api_key: str | None = None,
+) -> dict[str, Any]:
+    bhl_key = api_key or os.environ.get("BHL_API_KEY")
     records: list[dict[str, Any]] = []
-    for row in reader:
-        url_val = (row.get("Url") or "").strip()
-        title_val = (row.get("Title") or "").strip()
-        authors_val = (row.get("Authors") or "").strip()
-        date_val = (row.get("Date") or "").strip()
-        vol_val = (row.get("Volume") or "").strip()
-        pages_val = (row.get("Pages") or "").strip()
-        type_val = (row.get("Type") or "").strip()
 
-        if author and author.lower() not in authors_val.lower():
-            continue
-        if year and str(year) not in date_val:
-            continue
-
-        records.append(
-            {
-                "bhl_page_url": url_val,
-                "type": type_val,
-                "title": title_val,
-                "authors": authors_val,
-                "year": date_val,
-                "volume": vol_val,
-                "page": pages_val,
-                "publisher": (row.get("Publisher") or "").strip(),
-                "publisher_place": (row.get("Publisher Place") or "").strip(),
+    # 1. Official BHL APIv3 if API key is provided
+    if bhl_key:
+        try:
+            params = {
+                "op": "NameSearch",
+                "name": name,
+                "apikey": bhl_key,
+                "format": "json",
             }
-        )
-        if len(records) >= limit:
-            break
-    return records
+            data = fetch_json("https://www.biodiversitylibrary.org/api3", params)
+            if data.get("Status") == "ok":
+                for res in data.get("Result", []):
+                    name_id = res.get("NameBankID")
+                    confirmed = res.get("NameConfirmed")
+                    records.append(
+                        {
+                            "source": "BHL APIv3",
+                            "name_bank_id": name_id,
+                            "confirmed_name": confirmed,
+                            "bhl_url": f"https://www.biodiversitylibrary.org/name/{name_id}" if name_id else None,
+                        }
+                    )
+        except Exception:
+            pass
+
+    # 2. Zero-key BHL works via CrossRef (prefix:10.5962 is BHL)
+    try:
+        query_encoded = urllib.parse.quote(name)
+        cr_url = f"https://api.crossref.org/works?query={query_encoded}&filter=prefix:10.5962&rows={max(limit * 2, 10)}"
+        cr_data = fetch_json(cr_url)
+        cr_items = cr_data.get("message", {}).get("items", [])
+        for item in cr_items:
+            title_list = item.get("title") or []
+            title = title_list[0] if title_list else "Untitled"
+            container_list = item.get("container-title") or []
+            journal = container_list[0] if container_list else ""
+            issued_parts = item.get("issued", {}).get("date-parts", [[None]])
+            pub_year = issued_parts[0][0] if issued_parts and issued_parts[0] else None
+            author_names = [
+                f"{a.get('given', '')} {a.get('family', '')}".strip()
+                for a in item.get("author", [])
+            ]
+            authors_str = ", ".join(author_names)
+            doi = item.get("DOI")
+            doi_url = item.get("URL") or (f"https://doi.org/{doi}" if doi else None)
+
+            if author and author.lower() not in authors_str.lower():
+                continue
+            if year and pub_year != year:
+                continue
+
+            records.append(
+                {
+                    "source": "Biodiversity Heritage Library (BHL DOIs)",
+                    "title": title,
+                    "journal_or_series": journal,
+                    "year": pub_year,
+                    "authors": authors_str,
+                    "doi": doi,
+                    "bhl_part_url": doi_url,
+                    "volume": item.get("volume"),
+                    "issue": item.get("issue"),
+                    "page": item.get("page"),
+                }
+            )
+            if len(records) >= limit:
+                break
+    except Exception:
+        pass
+
+    # 3. GBIF Literature Search (papers, treatments, and monographs citing the species)
+    gbif_literature: list[dict[str, Any]] = []
+    try:
+        gl_data = fetch_json(f"{GBIF_BASE}/literature/search", {"q": name, "limit": 5})
+        for gl_item in gl_data.get("results", []):
+            gl_authors = [
+                f"{a.get('firstName', '')} {a.get('lastName', '')}".strip()
+                for a in gl_item.get("authors", [])
+            ]
+            gbif_literature.append(
+                {
+                    "title": gl_item.get("title"),
+                    "year": gl_item.get("year"),
+                    "authors": ", ".join(gl_authors),
+                    "source": gl_item.get("source"),
+                    "doi": gl_item.get("identifiers", {}).get("doi"),
+                    "url": (gl_item.get("websites") or [None])[0],
+                }
+            )
+    except Exception:
+        pass
+
+    encoded_name = urllib.parse.quote(name)
+    portal_urls = {
+        "bhl_name_search": f"https://www.biodiversitylibrary.org/search?searchTerm={encoded_name}#/names",
+        "bhl_title_search": f"https://www.biodiversitylibrary.org/search?searchTerm={encoded_name}#/titles",
+    }
+
+    return {
+        "query": name,
+        "database": "Biodiversity Heritage Library (BHL) & Taxonomic Literature",
+        "portal_links": portal_urls,
+        "api_key_configured": bool(bhl_key),
+        "bhl_citations_count": len(records),
+        "bhl_citations": records[:limit],
+        "gbif_literature_count": len(gbif_literature),
+        "gbif_literature": gbif_literature,
+    }
 
 
 def cmd_bhl(args: argparse.Namespace) -> dict[str, Any]:
     name = args.name.strip()
-    records = query_bhl(name, limit=args.limit, author=args.author, year=args.year)
-    return {
-        "query": name,
-        "database": "Biodiversity Heritage Library (BHL)",
-        "count": len(records),
-        "results": records,
-    }
+    api_key = getattr(args, "api_key", None)
+    return query_bhl(name, limit=args.limit, author=args.author, year=args.year, api_key=api_key)
 
 
 def query_specimens(name: str, limit: int = 10, country: str | None = None) -> list[dict[str, Any]]:
@@ -698,7 +772,7 @@ def cmd_dossier(args: argparse.Namespace) -> dict[str, Any]:
     syn = cmd_synonyms(argparse.Namespace(name=name, limit=args.limit))
     prof = cmd_profile(argparse.Namespace(name=name, lang=args.lang, limit=args.limit))
     canonical = res.get("gbif_backbone", {}).get("canonical_name") or name
-    bhl_records = query_bhl(canonical, limit=5)
+    bhl_data = query_bhl(canonical, limit=5)
     specimen_records = query_specimens(canonical, limit=5)
 
     return {
@@ -707,10 +781,7 @@ def cmd_dossier(args: argparse.Namespace) -> dict[str, Any]:
         "phylogenetic_and_taxonomic_hierarchy": hier,
         "synonymy_and_protologues": syn,
         "floristics_and_conservation": prof,
-        "biodiversity_heritage_library": {
-            "count": len(bhl_records),
-            "citations": bhl_records,
-        },
+        "biodiversity_heritage_library": bhl_data,
         "herbarium_specimens": {
             "count": len(specimen_records),
             "vouchers": specimen_records,
@@ -760,6 +831,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_bhl.add_argument("--name", "-n", required=True, help="Scientific plant name to search in BHL.")
     p_bhl.add_argument("--author", help="Optional author filter.")
     p_bhl.add_argument("--year", type=int, help="Optional year filter.")
+    p_bhl.add_argument("--api-key", help="Optional Biodiversity Heritage Library API key (or set BHL_API_KEY env var).")
     p_bhl.add_argument("--limit", "-l", type=int, default=15, help="Max BHL citations to return (default: 15).")
     p_bhl.set_defaults(func=cmd_bhl)
 
